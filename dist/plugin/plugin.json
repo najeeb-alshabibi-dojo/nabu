@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nabu",
+  "description": "Persistent, append-only local knowledge for agents.",
+  "version": "0.1.0",
+  "license": "MIT"
+}
