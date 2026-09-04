@@ -1,6 +1,6 @@
 ---
 name: nabu-memory
-description: Use Nabu's durable, append-only knowledge store while working.
+description: Proactively query before starting non-trivial tasks or debugging to find known gotchas, domain rules, and user preferences; distil and publish new decisions, gotchas, and conventions upon completion.
 ---
 
 # Nabu durable memory
