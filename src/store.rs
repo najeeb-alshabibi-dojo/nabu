@@ -110,6 +110,9 @@ pub struct NabuStore {
 impl NabuStore {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
+        fs::create_dir_all(&root)?;
+        let lock = Self::lock_file(&root)?;
+        lock.lock_exclusive()?;
         fs::create_dir_all(root.join("artifacts/global"))?;
         fs::create_dir_all(root.join("artifacts/local"))?;
         fs::create_dir_all(root.join("tags"))?;
@@ -117,7 +120,23 @@ impl NabuStore {
         fs::create_dir_all(root.join(INDEX_DIR))?;
         let ignore = root.join(".gitignore");
         if !ignore.exists() {
-            fs::write(&ignore, ".index/\n.lock\n")?;
+            fs::write(&ignore, ".index/\n.lock\n.store.lock\n")?;
+        } else {
+            let contents = fs::read_to_string(&ignore)?;
+            if !contents.lines().any(|line| line == ".store.lock") {
+                fs::write(
+                    &ignore,
+                    format!(
+                        "{}{}.store.lock\n",
+                        contents,
+                        if contents.is_empty() || contents.ends_with('\n') {
+                            ""
+                        } else {
+                            "\n"
+                        }
+                    ),
+                )?;
+            }
         }
         let config = root.join("nabu.toml");
         if !config.exists() {
@@ -127,7 +146,8 @@ impl NabuStore {
         let machine_id = read_machine_id(&config)?;
         let store = Self { root, machine_id };
         store.init_git()?;
-        store.reindex()?;
+        store.reindex_unlocked()?;
+        lock.unlock()?;
         Ok(store)
     }
     pub fn default_root() -> PathBuf {
@@ -138,6 +158,23 @@ impl NabuStore {
     pub fn root(&self) -> &Path {
         &self.root
     }
+    fn lock_file(root: &Path) -> Result<File> {
+        Ok(File::options()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(root.join(".store.lock"))?)
+    }
+    fn shared_lock(&self) -> Result<File> {
+        let lock = Self::lock_file(&self.root)?;
+        lock.lock_shared()?;
+        Ok(lock)
+    }
+    fn exclusive_lock(&self) -> Result<File> {
+        let lock = Self::lock_file(&self.root)?;
+        lock.lock_exclusive()?;
+        Ok(lock)
+    }
     fn db(&self) -> Result<Connection> {
         let db = Connection::open(self.root.join(INDEX_DIR).join("nabu.db"))?;
         db.execute_batch("PRAGMA journal_mode=WAL;
@@ -147,6 +184,7 @@ impl NabuStore {
         Ok(db)
     }
     pub fn register_tag(&self, path: &str, description: &str) -> Result<Tag> {
+        let lock = self.exclusive_lock()?;
         validate_tag(path)?;
         if description.trim().is_empty() {
             bail!("a tag description is required");
@@ -169,9 +207,11 @@ impl NabuStore {
         };
         fs::write(&dest, tag_markdown(&tag))?;
         self.git_commit(&format!("nabu: register tag {path}"))?;
+        lock.unlock()?;
         Ok(tag)
     }
     pub fn deprecate_tag(&self, path: &str) -> Result<Tag> {
+        let lock = self.exclusive_lock()?;
         let file = self.tag_path(path);
         let mut tag = parse_tag(
             &fs::read_to_string(&file)
@@ -180,9 +220,11 @@ impl NabuStore {
         tag.status = "deprecated".into();
         fs::write(file, tag_markdown(&tag))?;
         self.git_commit(&format!("nabu: deprecate tag {path}"))?;
+        lock.unlock()?;
         Ok(tag)
     }
     pub fn tags(&self, root: Option<&str>, include_deprecated: bool) -> Result<Vec<Tag>> {
+        let lock = self.shared_lock()?;
         let mut out = Vec::new();
         self.walk_tags(&self.root.join("tags"), &mut out)?;
         out.retain(|t| {
@@ -190,9 +232,11 @@ impl NabuStore {
                 && (include_deprecated || t.status == "active")
         });
         out.sort_by(|a, b| a.path.cmp(&b.path));
+        lock.unlock()?;
         Ok(out)
     }
     pub fn publish(&self, mut artifact: Artifact) -> Result<(Artifact, bool)> {
+        let lock = self.exclusive_lock()?;
         if artifact.title.trim().is_empty() || artifact.summary.trim().is_empty() {
             bail!("title and summary are required");
         }
@@ -220,7 +264,7 @@ impl NabuStore {
             }
         }
         for id in &artifact.supersedes {
-            if self.get(id)?.is_none() {
+            if self.get_unlocked(id)?.is_none() {
                 bail!("superseded artifact `{id}` does not exist");
             }
         }
@@ -251,11 +295,18 @@ impl NabuStore {
                 .open(edges)?
                 .write_all(data.as_bytes())?;
         }
-        self.reindex()?;
+        self.reindex_unlocked()?;
         self.git_commit(&format!("nabu: publish {} {}", artifact.id, artifact.title))?;
+        lock.unlock()?;
         Ok((artifact, true))
     }
     pub fn get(&self, id: &str) -> Result<Option<Artifact>> {
+        let lock = self.shared_lock()?;
+        let artifact = self.get_unlocked(id)?;
+        lock.unlock()?;
+        Ok(artifact)
+    }
+    fn get_unlocked(&self, id: &str) -> Result<Option<Artifact>> {
         let db = self.db()?;
         let path: Option<String> = db
             .query_row("SELECT path FROM artifacts WHERE id=?1", [id], |r| r.get(0))
@@ -266,6 +317,12 @@ impl NabuStore {
         }
     }
     pub fn superseded_by(&self, id: &str) -> Result<Vec<String>> {
+        let lock = self.shared_lock()?;
+        let superseded_by = self.superseded_by_unlocked(id)?;
+        lock.unlock()?;
+        Ok(superseded_by)
+    }
+    fn superseded_by_unlocked(&self, id: &str) -> Result<Vec<String>> {
         let db = self.db()?;
         let mut s =
             db.prepare("SELECT new_id FROM supersessions WHERE old_id=? ORDER BY new_id")?;
@@ -280,6 +337,7 @@ impl NabuStore {
         limit: usize,
         include_superseded: bool,
     ) -> Result<Vec<SearchHit>> {
+        let lock = self.shared_lock()?;
         let db = self.db()?;
         let mut sql = String::from(
             "SELECT a.id,a.title,a.summary,a.tags_json,a.scope,bm25(artifact_fts) FROM artifact_fts JOIN artifacts a USING(id) WHERE artifact_fts MATCH ?",
@@ -317,9 +375,12 @@ impl NabuStore {
                 score: -r.get::<_, f64>(5)?,
             })
         })?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        let hits = rows.collect::<Result<Vec<_>, _>>()?;
+        lock.unlock()?;
+        Ok(hits)
     }
     pub fn recent(&self, tag: Option<&str>, limit: usize) -> Result<Vec<SearchHit>> {
+        let lock = self.shared_lock()?;
         let db = self.db()?;
         let mut sql = String::from(
             "SELECT a.id,a.title,a.summary,a.tags_json,a.scope
@@ -348,9 +409,17 @@ impl NabuStore {
                 score: 0.0,
             })
         })?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        let hits = rows.collect::<Result<Vec<_>, _>>()?;
+        lock.unlock()?;
+        Ok(hits)
     }
     pub fn reindex(&self) -> Result<()> {
+        let lock = self.exclusive_lock()?;
+        self.reindex_unlocked()?;
+        lock.unlock()?;
+        Ok(())
+    }
+    fn reindex_unlocked(&self) -> Result<()> {
         let db_path = self.root.join(INDEX_DIR).join("nabu.db");
         if db_path.exists() {
             fs::remove_file(&db_path)?;

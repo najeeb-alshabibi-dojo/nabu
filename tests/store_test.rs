@@ -1,5 +1,6 @@
 use chrono::Utc;
 use nabu::{Artifact, ArtifactKind, NabuStore, Scope};
+use std::{fs, sync::Arc, thread};
 use tempfile::tempdir;
 
 fn artifact(title: &str, body: &str, supersedes: Vec<String>) -> Artifact {
@@ -63,4 +64,49 @@ fn parents_and_secrets_are_enforced() {
     assert!(s.publish(a.clone()).is_err());
     a.body = "safe".into();
     assert!(s.publish(a).is_ok());
+}
+
+#[test]
+fn concurrent_store_processes_can_open_and_publish() {
+    let d = tempdir().unwrap();
+    let root = Arc::new(d.path().to_path_buf());
+    NabuStore::open(&*root).unwrap();
+    fs::write(root.join(".gitignore"), ".index/\n.lock\n").unwrap();
+    let store = NabuStore::open(&*root).unwrap();
+    assert!(
+        fs::read_to_string(root.join(".gitignore"))
+            .unwrap()
+            .lines()
+            .any(|line| line == ".store.lock")
+    );
+    store.register_tag("system", "machine tools").unwrap();
+    store.register_tag("system::java", "Java tooling").unwrap();
+
+    let workers: Vec<_> = (0..10)
+        .map(|index| {
+            let root = Arc::clone(&root);
+            thread::spawn(move || {
+                let store = NabuStore::open(&*root).unwrap();
+                store
+                    .publish(artifact(
+                        &format!("Concurrent artifact {index}"),
+                        &format!("durable concurrent memory {index}"),
+                        vec![],
+                    ))
+                    .unwrap()
+            })
+        })
+        .collect();
+
+    for worker in workers {
+        assert!(worker.join().unwrap().1);
+    }
+    assert_eq!(
+        NabuStore::open(&*root)
+            .unwrap()
+            .recent(None, 20)
+            .unwrap()
+            .len(),
+        10
+    );
 }
