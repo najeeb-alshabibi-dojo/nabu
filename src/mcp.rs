@@ -22,16 +22,30 @@ pub fn serve(store: NabuStore) -> Result<()> {
                 json!({"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"nabu","version":env!("CARGO_PKG_VERSION")}}),
             ),
             "tools/list" => ok(id, json!({"tools": tools()})),
-            "tools/call" => match call(&store, message.get("params").unwrap_or(&Value::Null)) {
-                Ok(result) => ok(
-                    id,
-                    json!({"content":[{"type":"text","text":serde_json::to_string(&result)?}]}),
-                ),
-                Err(e) => ok(
-                    id,
-                    json!({"content":[{"type":"text","text":format!("nabu error: {e}")}],"isError":true}),
-                ),
-            },
+            "tools/call" => {
+                // A panic inside a tool would otherwise unwind out of `serve`
+                // and kill the process, so every later request on this stdio
+                // connection fails with "transport closed". Contain it and
+                // report it as a normal tool error instead.
+                let params = message.get("params").unwrap_or(&Value::Null);
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    call(&store, params)
+                }));
+                match outcome {
+                    Ok(Ok(result)) => ok(
+                        id,
+                        json!({"content":[{"type":"text","text":serde_json::to_string(&result)?}]}),
+                    ),
+                    Ok(Err(e)) => ok(
+                        id,
+                        json!({"content":[{"type":"text","text":format!("nabu error: {e}")}],"isError":true}),
+                    ),
+                    Err(panic) => ok(
+                        id,
+                        json!({"content":[{"type":"text","text":format!("nabu internal error: {}", panic_message(&*panic))}],"isError":true}),
+                    ),
+                }
+            }
             _ => error(id, -32601, "Method not found"),
         };
         writeln!(stdout, "{}", response)?;
@@ -45,6 +59,15 @@ fn ok(id: Value, result: Value) -> Value {
 fn error(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = panic.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = panic.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
 fn tool(name: &str, description: &str, input_schema: Value) -> Value {
     json!({"name":name,"description":description,"inputSchema":input_schema})
 }
@@ -57,7 +80,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "nabu_search",
-            "Search active artifacts. Results are compact; call nabu_get for bodies.",
+            "Search active artifacts. Returns {results, nudge?}; results are compact, call nabu_get for bodies.",
             json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"tags":{"type":"string"},"kind":{"type":"string","enum":["decision","gotcha","environment","orientation","preference","external"]},"limit":{"type":"integer","default":8},"include_superseded":{"type":"boolean","default":false}}}),
         ),
         tool(
@@ -108,13 +131,17 @@ fn call(s: &NabuStore, p: &Value) -> Result<Value> {
                 limit,
                 a["include_superseded"].as_bool().unwrap_or(false),
             )?;
-            let mut v = json!(hits);
+            // Always an object so the response shape does not depend on whether
+            // `tags` was passed. Indexing a key into an object is safe; the
+            // original bug was doing this to the bare `hits` array, which makes
+            // serde_json panic.
+            let mut response = json!({ "results": hits });
             if tag.is_none() {
-                v["nudge"] = json!(
+                response["nudge"] = json!(
                     "Search without a tag returned a reduced set. Use nabu_tag_tree then retry with tags."
                 );
             }
-            Ok(v)
+            Ok(response)
         }
         "nabu_get" => {
             let mut output = Vec::new();
