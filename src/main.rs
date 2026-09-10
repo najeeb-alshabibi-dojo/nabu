@@ -179,7 +179,7 @@ fn main() -> Result<()> {
                 .get(&id)?
                 .ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
             println!("{}", serde_json::to_string_pretty(&a)?);
-            let next = s.superseded_by(&id)?;
+            let next = s.superseded_by(&a.id)?;
             if !next.is_empty() {
                 println!("superseded_by: {}", next.join(", "))
             }
@@ -229,7 +229,7 @@ fn main() -> Result<()> {
                     "─".repeat(artifact.title.chars().count()),
                     artifact.body
                 );
-                let successors = s.superseded_by(&id)?;
+                let successors = s.superseded_by(&artifact.id)?;
                 if !successors.is_empty() {
                     println!("\nSuperseded by: {}", successors.join(", "));
                 }

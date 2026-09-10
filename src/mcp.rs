@@ -152,7 +152,7 @@ fn call(s: &NabuStore, p: &Value) -> Result<Value> {
                 .filter_map(Value::as_str)
             {
                 if let Some(artifact) = s.get(id)? {
-                    output.push(json!({"artifact":artifact,"superseded_by":s.superseded_by(id)?}));
+                    output.push(json!({"artifact":artifact,"superseded_by":s.superseded_by(&artifact.id)?}));
                 }
             }
             Ok(json!(output))

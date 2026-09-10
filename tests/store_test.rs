@@ -67,6 +67,45 @@ fn parents_and_secrets_are_enforced() {
 }
 
 #[test]
+fn get_resolves_unambiguous_id_prefixes() {
+    let d = tempdir().unwrap();
+    let s = NabuStore::open(d.path()).unwrap();
+    s.register_tag("system", "machine tools").unwrap();
+    s.register_tag("system::java", "Java tooling").unwrap();
+
+    let (artifact, _) = s
+        .publish(artifact("Java problem", "JDK 25 breaks Lombok.", vec![]))
+        .unwrap();
+    let prefix = &artifact.id[..6];
+
+    assert_eq!(s.get(&artifact.id).unwrap().unwrap().id, artifact.id);
+    assert_eq!(s.get(prefix).unwrap().unwrap().id, artifact.id);
+    assert!(s.get("").unwrap().is_none());
+}
+
+#[test]
+fn get_rejects_ambiguous_id_prefixes_and_canonicalizes_supersedes() {
+    let d = tempdir().unwrap();
+    let s = NabuStore::open(d.path()).unwrap();
+    s.register_tag("system", "machine tools").unwrap();
+    s.register_tag("system::java", "Java tooling").unwrap();
+
+    let (first, _) = s.publish(artifact("First", "First body.", vec![])).unwrap();
+    let (second, _) = s.publish(artifact("Second", "Second body.", vec![])).unwrap();
+
+    assert!(s.get("nb_").unwrap().is_none());
+
+    let prefix = &first.id[..6];
+    let (replacement, _) = s
+        .publish(artifact("Replacement", "Replacement body.", vec![prefix.into()]))
+        .unwrap();
+
+    assert_eq!(replacement.supersedes, vec![first.id.clone()]);
+    assert_eq!(s.superseded_by(prefix).unwrap(), vec![replacement.id]);
+    assert!(s.get(&second.id).unwrap().is_some());
+}
+
+#[test]
 fn concurrent_store_processes_can_open_and_publish() {
     let d = tempdir().unwrap();
     let root = Arc::new(d.path().to_path_buf());

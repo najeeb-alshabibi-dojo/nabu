@@ -263,11 +263,17 @@ impl NabuStore {
                 bail!("tag `{tag}` is deprecated");
             }
         }
-        for id in &artifact.supersedes {
-            if self.get_unlocked(id)?.is_none() {
-                bail!("superseded artifact `{id}` does not exist");
-            }
-        }
+        artifact.supersedes = artifact
+            .supersedes
+            .iter()
+            .map(|id| {
+                self.get_unlocked(id)?
+                    .map(|artifact| artifact.id)
+                    .ok_or_else(|| anyhow::anyhow!("superseded artifact `{id}` does not exist"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        artifact.supersedes.sort();
+        artifact.supersedes.dedup();
         artifact.id = content_id(&artifact);
         artifact.created_at = Utc::now();
         if artifact.author.trim().is_empty() {
@@ -307,10 +313,27 @@ impl NabuStore {
         Ok(artifact)
     }
     fn get_unlocked(&self, id: &str) -> Result<Option<Artifact>> {
+        if id.is_empty() {
+            return Ok(None);
+        }
         let db = self.db()?;
-        let path: Option<String> = db
+        let exact_path: Option<String> = db
             .query_row("SELECT path FROM artifacts WHERE id=?1", [id], |r| r.get(0))
             .ok();
+        let path = match exact_path {
+            Some(path) => Some(path),
+            None => {
+                let mut stmt = db.prepare(
+                    "SELECT path FROM artifacts
+                     WHERE substr(id, 1, length(?1)) = ?1
+                     LIMIT 2",
+                )?;
+                let paths = stmt
+                    .query_map([id], |r| r.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                (paths.len() == 1).then(|| paths.into_iter().next().unwrap())
+            }
+        };
         match path {
             Some(p) => Ok(Some(parse_artifact(&fs::read_to_string(p)?)?)),
             None => Ok(None),
@@ -318,7 +341,10 @@ impl NabuStore {
     }
     pub fn superseded_by(&self, id: &str) -> Result<Vec<String>> {
         let lock = self.shared_lock()?;
-        let superseded_by = self.superseded_by_unlocked(id)?;
+        let superseded_by = match self.get_unlocked(id)? {
+            Some(artifact) => self.superseded_by_unlocked(&artifact.id)?,
+            None => Vec::new(),
+        };
         lock.unlock()?;
         Ok(superseded_by)
     }
