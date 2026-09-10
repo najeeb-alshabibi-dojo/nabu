@@ -11,17 +11,17 @@
     session**, before starting **any new step or subtask** (e.g. before domain
     modeling, before schema/migration changes, before writing tests, before
     running builds, and before debugging investigations).
-  - Call `nabu_tag_tree` (or the configured Nabu CLI's `tree` command) to find the narrowest
-    relevant tag, then search it with concrete task keywords. If needed, expand
-    to its parent or a related cross-cutting tag instead of relying on an
-    untagged search.
+  - Call `nabu_tag_tree` (or the configured Nabu CLI's `tree` command) to find
+    the narrowest relevant tag, then search it with concrete task keywords. If
+    needed, expand to its parent or a related cross-cutting tag instead of
+    relying on an untagged search.
   - Search separate concerns separately: for example, search both the project
     tag and a `system` or `tooling` tag before investigating a build or
     environment failure.
 - **Publish durable knowledge**: Proactively publish through `nabu_publish` or
-  the configured Nabu CLI non-obvious domain gotchas, architectural
-  decisions with rationale, user conventions/preferences, and reusable machine
-  or configuration facts. Capture tool/runtime setup, platform quirks, editor or
+  the configured Nabu CLI non-obvious domain gotchas, architectural decisions
+  with rationale, user conventions/preferences, and reusable machine or
+  configuration facts. Capture tool/runtime setup, platform quirks, editor or
   shell behavior, permissions, sandbox/network constraints, and reproducible
   workarounds when they reduce future errors or streamline work. Use
   `scope: local` for machine- or user-specific facts and `scope: global` only
