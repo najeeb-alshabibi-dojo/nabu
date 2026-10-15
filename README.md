@@ -81,8 +81,8 @@ Run `nabu --help` or `nabu <command> --help` for all options.
 
 ## Install the agent skill and instructions
 
-The distributable agent assets are in `dist/plugin`: the `nabu-memory` skill
-and the `AGENTS.md` instructions. Install both for the agent client you use;
+The distributable agent assets are in `dist/plugin`: the `nabu-memory` skill and
+the `AGENTS.md` instructions. Install both for the agent client you use;
 installing the MCP server alone does not install these assets.
 
 ### Antigravity
@@ -126,11 +126,12 @@ cp dist/plugin/rules/AGENTS.md \
   "$HOME/.copilot/instructions/nabu.instructions.md"
 ```
 
-Alternatively, put the instructions in the workspace's `AGENTS.md` to apply
-them only to that project. If Copilot CLI is already running, reload skills
-with `/skills reload`. See GitHub's guides to
+Alternatively, put the instructions in the workspace's `AGENTS.md` to apply them
+only to that project. If Copilot CLI is already running, reload skills with
+`/skills reload`. See GitHub's guides to
 [adding agent skills](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills)
-and [adding MCP servers and customizations](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers).
+and
+[adding MCP servers and customizations](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers).
 
 ## MCP server
 
@@ -184,8 +185,8 @@ See GitHub's guide to
 [adding MCP servers for Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers).
 
 Nabu's MCP server provides tools for browsing tags, searching and retrieving
-artifacts, publishing knowledge, registering tags, listing recent artifacts,
-and following supersession links.
+artifacts, publishing knowledge, registering tags, listing recent artifacts, and
+following supersession links.
 
 ## Store layout
 
