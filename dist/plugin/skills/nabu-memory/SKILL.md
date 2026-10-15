@@ -16,24 +16,31 @@ which work happens.
 
 ## Querying and navigating tags
 
-Query Nabu **multiple times throughout every session**—never treat it as a
-one-time check at the beginning. Before starting **any new step or subtask**
-(for example, exploring a repository area, changing configuration, designing a
-model, running a build, or debugging a failure):
+Proactively consult Nabu at the start of a new task and when materially new
+information or a new area may have relevant durable project, environment, or
+user context. Do not wait for the user to ask for a lookup. Avoid repeating
+equivalent lookups for context already covered during the session.
 
-1. Call `nabu_tag_tree` (or the configured Nabu CLI's `tree` command) and
-   identify the narrowest existing tag that matches the work. Examples:
-   `system::java` for a local JDK issue, `editor::neovim::lsp` for editor
-   behavior, or `avalanche::zebra-inv-app` for repository-specific facts.
-2. Search that tag with concrete task keywords:
-   `nabu_search(query="<tool or symptom> <task>", tags="<narrow-tag>")`. Results
-   are compact; call `nabu_get` only for useful IDs.
-3. If the narrow search is empty or insufficient, expand deliberately: search
-   its parent tag, then a related cross-cutting tag such as `system`, `tooling`,
-   or `personal`. Do not rely on untagged searches when a relevant tag exists.
-4. For work that spans concerns, perform separate targeted searches rather than
-   one vague search—for example, search both a project tag and `system::java`
-   before investigating a build failure.
+For a relevant topic:
+
+1. Use `nabu_tag_tree` (or the configured Nabu CLI's `tree` command) to choose
+   the narrowest relevant tag. Examples: `system::java` for a local JDK issue,
+   `editor::neovim::lsp` for editor behavior, or
+   `avalanche::zebra-inv-app` for repository-specific facts. Reuse the tree
+   response throughout the session, including for new tasks; refresh it only
+   if the needed tag is not represented or the taxonomy may have changed.
+2. Search the chosen tag with concrete task keywords:
+   `nabu_search(query="<tool or symptom> <task>", tags="<narrow-tag>")`.
+   Search proactively for each new task or materially new relevant context.
+   Reuse results for the same topic instead of repeating equivalent searches
+   before each subtask or tool call. Call `nabu_get` only for useful IDs, and
+   reuse fetched artifact details for the rest of the session.
+3. When the task or context materially changes, search the new concrete topic.
+   If prior results are insufficient, expand deliberately to a parent or
+   related cross-cutting tag such as `system`, `tooling`, or `personal`.
+4. Search separate concerns separately when each may have distinct relevant
+   knowledge—for example, project-specific facts and local Java setup when both
+   affect a build failure. Do not repeat searches for context already covered.
 
 Tags are hierarchical scopes for discovery. Prefer the most specific active tag,
 add multiple tags only when an artifact genuinely applies to each area, and
@@ -68,8 +75,10 @@ generic session recap or transient progress notes.
 
 ## Rules
 
-- Query continuously: always perform a Nabu tag-tree lookup and targeted search
-  before transitioning to a new task step or subtask.
+- Query proactively for new tasks or materially new potentially relevant
+  context, and reuse session results for context already covered. Do not repeat
+  tag-tree lookups or equivalent searches just because work has moved to
+  another subtask.
 - If MCP transport fails, use the Nabu CLI when it is available in the current
   harness. Follow the harness's documented permission, executable-discovery, and
   configuration conventions; do not assume an installation path or bypass mode.
